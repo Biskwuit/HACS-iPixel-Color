@@ -1,0 +1,45 @@
+{
+    "config": {
+        "flow_title": "iPixel Color LED Matrix",
+        "step": {
+            "user": {
+                "title": "Add iPixel Color LED Matrix",
+                "description": "Choose how to connect to your device.",
+                "data": {
+                    "selection": "Connection method"
+                },
+                "data_description": {
+                    "scan": "Automatically discover nearby iPixel LED matrices via Bluetooth",
+                    "manual": "Manually enter the Bluetooth MAC address of your device"
+                }
+            },
+            "scan": {
+                "title": "Select Device",
+                "description": "Found {count} iPixel device(s). Select the one to configure.",
+                "data": {
+                    "address": "Device"
+                }
+            },
+            "manual": {
+                "title": "Manual Configuration",
+                "description": "Enter the Bluetooth MAC address of your iPixel LED matrix (e.g. AA:BB:CC:DD:EE:FF).",
+                "data": {
+                    "address": "MAC Address",
+                    "name": "Device Name (optional)"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Could not connect to the device. Check the address and try again.",
+            "no_devices_found": "No iPixel devices found. Make sure the device is powered on and in range.",
+            "bluetooth_error": "Bluetooth scan error: {error}",
+            "invalid_address": "Invalid MAC address format."
+        },
+        "abort": {
+            "already_configured": "This device is already configured."
+        },
+        "progress": {
+            "connecting": "Connecting to {name}..."
+        }
+    }
+}
