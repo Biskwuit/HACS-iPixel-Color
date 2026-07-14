@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -99,16 +100,16 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
                     "rssi": getattr(device, "rssi", None),
                 }
 
-            # Scan for 10 seconds
-            scan_iter = bleak.BleakScanner.discover(timeout=10.0)
-            seen: set[str] = set()
-            async for device in scan_iter:
-                if device.address in seen:
-                    continue
-                seen.add(device.address)
-                entry = _make_device_entry(device)
-                if entry:
-                    discovered.append(entry)
+            # Scan for 10 seconds using async context manager (bleak >= 0.17)
+            async with bleak.BleakScanner(timeout=10.0) as scanner:
+                async for device in scanner.advertisement_data_filter(
+                    lambda d: _looks_like_ipixel_device(d.name or "")
+                ):
+                    entry = _make_device_entry(device)
+                    if entry:
+                        # Deduplicate by address
+                        if entry["address"] not in {d["address"] for d in discovered}:
+                            discovered.append(entry)
 
             self._discovered_devices = discovered
 
@@ -135,13 +136,14 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
                         device["address"], device.get("name") or DEFAULT_NAME
                     )
 
+            # FIX: supply {count} placeholder so the translation string renders
             return self.async_show_form(
                 step_id="scan",
                 data_schema=vol.Schema({
                     vol.Required(CONF_ADDRESS): vol.In(choices),
                 }),
                 errors=errors,
-                description_placeholders={},
+                description_placeholders={"count": str(len(discovered))},
             )
 
         except Exception as ex:
