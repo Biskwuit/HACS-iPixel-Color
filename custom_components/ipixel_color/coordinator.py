@@ -26,10 +26,15 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _extract_bleak_exceptions() -> tuple[type[Exception], ...]:
-    """Return a tuple of Bleak exception types, falling back to Exception."""
+    """Return a tuple of Bleak exception types, falling back to Exception.
+
+    In bleak >= 2.0, BleakDBusError lives in bleak.exc, not at the top level.
+    BleakBlueZDBusError was removed in bleak 3.x (merged into BleakDBusError).
+    """
     try:
         import bleak
-        return (bleak.BleakError, bleak.BleakDBusError, bleak.BleakBlueZDBusError, Exception)
+        from bleak.exc import BleakDBusError, BleakError
+        return (BleakError, BleakDBusError, Exception)
     except ImportError:
         return (Exception,)
 
