@@ -216,7 +216,7 @@ The integration wraps these **real** methods from [`pypixelcolor.AsyncClient`](h
 | `await client.clear()` | Clear the display |
 | `await client.get_device_info()` | Get cached device info (width/height/type) |
 
-Discovery is performed via `bleakex.BleakScanner.discover()` filtered by known BLE name prefixes.
+Discovery is performed via `bleak.BleakScanner.discover()` filtered by known BLE name prefixes.
 
 ---
 

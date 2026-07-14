@@ -21,7 +21,7 @@ NOTIFY_UUID = "0000fa03-0000-1000-8000-00805f9b34fb"
 # Bleak exceptions to catch for reconnects
 BLEAK_EXCEPTIONS = (
     Exception,
-)  # bleakex.BleakError is a subclass of Exception; import dynamically
+)  # bleak.BleakError is a subclass of Exception; import dynamically
 
 # Brightness range
 BRIGHTNESS_MIN = 0

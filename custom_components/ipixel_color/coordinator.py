@@ -28,8 +28,8 @@ _LOGGER = logging.getLogger(__name__)
 def _extract_bleak_exceptions() -> tuple[type[Exception], ...]:
     """Return a tuple of Bleak exception types, falling back to Exception."""
     try:
-        import bleakex
-        return (bleakex.BleakError, bleakex.BleakDBusError, bleakex.BleakBlueZDBusError, Exception)
+        import bleak
+        return (bleak.BleakError, bleak.BleakDBusError, bleak.BleakBlueZDBusError, Exception)
     except ImportError:
         return (Exception,)
 

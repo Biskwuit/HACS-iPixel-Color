@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-import bleakex
+import bleak
 import voluptuous as vol
 
 from homeassistant.components.bluetooth import (
@@ -91,7 +91,7 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.info("Starting BLE scan for iPixel devices...")
             discovered: list[dict[str, Any]] = []
 
-            def _make_device_entry(device: bleakex.BLEDevice) -> dict[str, Any] | None:
+            def _make_device_entry(device: bleak.BLEDevice) -> dict[str, Any] | None:
                 name = device.name or device.address
                 if not _looks_like_ipixel_device(name):
                     return None
@@ -102,7 +102,7 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
 
             # Scan for 10 seconds
-            scan_iter = bleakex.BleakScanner.discover(timeout=10.0)
+            scan_iter = bleak.BleakScanner.discover(timeout=10.0)
             seen: set[str] = set()
             async for device in scan_iter:
                 if device.address in seen:
