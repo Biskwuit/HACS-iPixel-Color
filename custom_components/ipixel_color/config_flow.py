@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -11,7 +10,6 @@ import voluptuous as vol
 
 from homeassistant.components.bluetooth import (
     async_discovered_service_info,
-    BluetoothScrolling,
 )
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
