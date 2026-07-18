@@ -1,60 +1,49 @@
-"""iPixel Color LED Matrix Home Assistant integration."""
+"""iPixel Color LED Matrix integration for Home Assistant."""
 
 import logging
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
-from .coordinator import IPixelDevice
-from . import services  # noqa: F401 — registers services at import time
+from .coordinator import IPixelColorCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["light"]
+PLATFORMS = [Platform.LIGHT, Platform.TEXT]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up iPixel Color LED Matrix from a config entry."""
-    address: str = entry.data["address"]
-    name: str = entry.data.get("name") or address
+    address = entry.data[CONF_ADDRESS]
 
-    device = IPixelDevice(
-        hass=hass,
-        address=address,
-        entry_id=entry.entry_id,
-        name=name,
-    )
+    coordinator = IPixelColorCoordinator(hass, address)
+    entry.runtime_data = coordinator
 
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {}
-        services.register_services(hass)
+    # Initial connection
+    await coordinator.async_connect()
 
-    hass.data[DOMAIN][entry.entry_id] = device
-
-    try:
-        await device.connect()
-    except Exception as ex:
-        _LOGGER.warning(
-            "[%s] Initial connection failed; background reconnect will keep trying: %s",
-            address,
-            ex,
-        )
+    # Start automatic reconnect loop
+    coordinator.start_reconnect_loop()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload and disconnect the integration."""
-    device: IPixelDevice = hass.data[DOMAIN].pop(entry.entry_id, None)
-    if device is None:
-        return True
+    """Unload a config entry."""
+    coordinator = entry.runtime_data
 
-    await device.disconnect()
-
-    if not hass.data[DOMAIN]:
-        del hass.data[DOMAIN]
+    await coordinator.async_disconnect()
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
     return unload_ok
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate a config entry to a new version."""
+    # Handle migration here if needed in future versions
+    return True

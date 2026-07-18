@@ -1,215 +1,135 @@
 """Config flow for iPixel Color LED Matrix."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any
 
-import bleak
-import voluptuous as vol
+import bluetooth
+from homeassistant.components import bluetooth
+from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
+from homeassistant.core import callback
+from homeassistant.helpers.selector import selector
 
-from homeassistant.components.bluetooth import (
-    async_discovered_service_info,
-)
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_ADDRESS, CONF_NAME
-
-from .const import (
-    CONF_ADDRESS as CONF_ADDR,
-    CONF_NAME as CONF_DEV_NAME,
-    DEFAULT_NAME,
-    DOMAIN,
-)
+from .const import CONF_ADDRESS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Known iPixel device name prefixes (BLE advertise name starts with this)
-IPIXEL_NAME_PREFIXES = ("PixelColor", "iPixel", "LEDMatrix", "MATRIX", "IPixel")
-
-
-def _looks_like_ipixel_device(name: str | None) -> bool:
-    """Return True if the BLE name looks like an iPixel device."""
-    if not name:
-        return False
-    upper = name.upper()
-    return any(prefix.upper() in upper for prefix in IPIXEL_NAME_PREFIXES)
-
 
 class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Config flow for iPixel Color LED Matrix.
-
-    Two paths:
-      1. Auto-discover (BLE scan) — list nearby iPixel devices for user to pick.
-      2. Manual — user enters a BLE MAC address directly.
-    """
+    """Handle a config flow for iPixel Color LED Matrix."""
 
     VERSION = 1
 
     def __init__(self) -> None:
-        self._discovered_devices: list[dict[str, Any]] = []
+        """Initialize the config flow."""
+        self._address: str | None = None
+        self._devices: dict[str, bluetooth.BLEDevice] = {}
 
-    # ------------------------------------------------------------------
-    # Step: user — pick discovery method or manual entry
-    # ------------------------------------------------------------------
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Present two options: Auto-discover or Manual entry."""
+    ) -> dict[str, Any]:
+        """Handle the user step."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            choice = user_input.get("selection")
-            if choice == "scan":
-                return await self.async_step_scan()
-            if choice == "manual":
-                return await self.async_step_manual()
+            address = user_input[CONF_ADDRESS]
+            await self.async_set_unique_id(address)
+            self._abort_if_unique_id_configured()
+
+            # Validate connection
+            try:
+                import pypixelcolor
+                client = pypixelcolor.AsyncClient(address)
+                await client.connect()
+                await client.disconnect()
+            except Exception as err:
+                _LOGGER.warning("Connection validation failed: %s", err)
+                errors["base"] = "cannot_connect"
+
+            if not errors:
+                return self.async_create_entry(
+                    title=f"iPixel Color LED Matrix ({address})",
+                    data={CONF_ADDRESS: address},
+                )
+
+        # Discover devices
+        discovered = bluetooth.async_discovered_service_info(self.hass)
+        self._devices = {}
+        devices_dict = {}
+
+        for discovery in discovered:
+            if discovery.name and "iPixel" in discovery.name:
+                address = discovery.address
+                self._devices[address] = discovery
+                devices_dict[address] = f"{discovery.name} ({address})"
+
+        if not devices_dict:
+            # If no auto-discovered, show any discovered BLE devices as fallback
+            for discovery in discovered:
+                address = discovery.address
+                self._devices[address] = discovery
+                devices_dict[address] = f"{discovery.name or 'Unknown'} ({address})"
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required("selection", default="scan"): vol.In({
-                    "scan": "Auto-discover nearby iPixel devices",
-                    "manual": "Enter address manually",
-                }),
+            data_schema=selector({
+                CONF_ADDRESS: selector({
+                    "select": {
+                        "options": [
+                            {"label": name, "value": addr}
+                            for addr, name in devices_dict.items()
+                        ]
+                    }
+                })
             }),
             errors=errors,
-            description_placeholders={},
         )
 
-    # ------------------------------------------------------------------
-    # Step: scan — BLE scan, list iPixel devices
-    # ------------------------------------------------------------------
-    async def async_step_scan(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Scan for BLE devices and let user pick one."""
-        errors: dict[str, str] = {}
-
-        try:
-            _LOGGER.info("Starting BLE scan for iPixel devices...")
-            discovered: list[dict[str, Any]] = []
-
-            def _make_device_entry(device: bleak.BLEDevice) -> dict[str, Any] | None:
-                name = device.name or device.address
-                if not _looks_like_ipixel_device(name):
-                    return None
-                return {
-                    "address": device.address,
-                    "name": name,
-                    "rssi": getattr(device, "rssi", None),
-                }
-
-            # Scan for 10 seconds using async context manager (bleak >= 0.17)
-            async with bleak.BleakScanner(timeout=10.0) as scanner:
-                async for device in scanner.advertisement_data_filter(
-                    lambda d: _looks_like_ipixel_device(d.name or "")
-                ):
-                    entry = _make_device_entry(device)
-                    if entry:
-                        # Deduplicate by address
-                        if entry["address"] not in {d["address"] for d in discovered}:
-                            discovered.append(entry)
-
-            self._discovered_devices = discovered
-
-            if not discovered:
-                return self.async_show_form(
-                    step_id="scan",
-                    data_schema=vol.Schema({}),
-                    errors={"base": "no_devices_found"},
-                    description_placeholders={},
-                )
-
-            # Build selection schema
-            choices = {
-                d["address"]: f"{d['name']} ({d['address']})"
-                + (f" [RSSI {d['rssi']}]" if d["rssi"] is not None else "")
-                for d in discovered
-            }
-
-            if user_input is not None:
-                address = user_input.get(CONF_ADDRESS)
-                if address and address in choices:
-                    device = next(d for d in discovered if d["address"] == address)
-                    return await self._async_create_entry(
-                        device["address"], device.get("name") or DEFAULT_NAME
-                    )
-
-            # FIX: supply {count} placeholder so the translation string renders
-            return self.async_show_form(
-                step_id="scan",
-                data_schema=vol.Schema({
-                    vol.Required(CONF_ADDRESS): vol.In(choices),
-                }),
-                errors=errors,
-                description_placeholders={"count": str(len(discovered))},
-            )
-
-        except Exception as ex:
-            _LOGGER.exception("BLE scan error: %s", ex)
-            return self.async_show_form(
-                step_id="scan",
-                data_schema=vol.Schema({}),
-                errors={"base": "bluetooth_error"},
-                description_placeholders={"error": str(ex)},
-            )
-
-    # ------------------------------------------------------------------
-    # Step: manual — user enters BLE MAC address
-    # ------------------------------------------------------------------
-    async def async_step_manual(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Let user type in a BLE address directly."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            address = user_input.get(CONF_ADDRESS, "").strip()
-            name = user_input.get(CONF_DEV_NAME, "").strip() or DEFAULT_NAME
-
-            if not address:
-                errors[CONF_ADDRESS] = "invalid_address"
-            else:
-                # Validate by attempting a brief connect
-                try:
-                    import pypixelcolor
-                    client = pypixelcolor.AsyncClient(address)
-                    await client.connect()
-                    await client.disconnect()
-                except Exception as ex:
-                    _LOGGER.warning("Manual address validation failed: %s", ex)
-                    errors["base"] = "cannot_connect"
-                    errors["address"] = str(ex)
-
-                if not errors:
-                    return await self._async_create_entry(address, name)
-
-        return self.async_show_form(
-            step_id="manual",
-            data_schema=vol.Schema({
-                vol.Required(CONF_ADDRESS): str,
-                vol.Optional(CONF_DEV_NAME, default=DEFAULT_NAME): str,
-            }),
-            errors=errors,
-            description_placeholders={},
-        )
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    async def _async_create_entry(
-        self, address: str, name: str
-    ) -> ConfigFlowResult:
-        """Create the config entry after validating the device."""
+    async def async_step_bluetooth(
+        self, discovery_info: bluetooth.BluetoothServiceInfoBleak
+    ) -> dict[str, Any]:
+        """Handle the bluetooth discovery step."""
+        address = discovery_info.address
         await self.async_set_unique_id(address)
         self._abort_if_unique_id_configured()
 
-        return self.async_create_entry(
-            title=name,
-            data={
-                CONF_ADDRESS: address,
-                CONF_DEV_NAME: name,
-            },
+        self._address = address
+        self.context["title_placeholders"] = {"address": address}
+
+        return self.async_show_form(
+            step_id="bluetooth_confirm",
+            description_placeholders={CONF_ADDRESS: address},
         )
+
+    async def async_step_bluetooth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Confirm the bluetooth discovery."""
+        if user_input is None:
+            return self.async_show_form(step_id="bluetooth_confirm")
+
+        address = self._address or self.context.get("title_placeholders", {}).get("address")
+        return self.async_create_entry(
+            title=f"iPixel Color LED Matrix ({address})",
+            data={CONF_ADDRESS: address},
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(entry: ConfigEntry) -> OptionsFlow:
+        """Get the options flow."""
+        return IPixelColorOptionsFlow(entry)
+
+
+class IPixelColorOptionsFlow(OptionsFlow):
+    """Handle options for iPixel Color."""
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self._entry = entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Manage options."""
+        return self.async_show_form(step_id="init")

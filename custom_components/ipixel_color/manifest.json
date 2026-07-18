@@ -2,18 +2,18 @@
   "domain": "ipixel_color",
   "name": "iPixel Color LED Matrix",
   "codeowners": ["@your-github-username"],
-  "documentation": "https://lucagoc.fr/pypixelcolor/latest/",
-  "dormant": false,
-  "issue_tracker_base": "https://github.com/lucagoc/pypixelcolor/issues",
-  "requirements": ["pypixelcolor"],
   "config_flow": true,
-  "integration_type": "device",
-  "iot_class": "local_polling",
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/lucagoc/pypixelcolor",
+  "issue_tracker": "https://github.com/lucagoc/pypixelcolor/issues",
+  "requirements": ["pypixelcolor>=0.4.0"],
   "bluetooth": [
     {
-      "manufacturer_id": 4729,
-      "service_uuid": "0000fa02-0000-1000-8000-00805f9b34fb"
+      "manufacturer_id": 76,
+      "manufacturer_data_start": [8, 1]
     }
   ],
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "quality_scale": "gold",
+  "iot_class": "local_polling"
 }
