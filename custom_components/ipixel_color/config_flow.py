@@ -1,11 +1,10 @@
 """Config flow for iPixel Color LED Matrix."""
 
-import asyncio
 import logging
 from typing import Any
 
-import bluetooth
 from homeassistant.components import bluetooth
+from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
@@ -23,7 +22,7 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._address: str | None = None
-        self._devices: dict[str, bluetooth.BLEDevice] = {}
+        self._devices: dict[str, Any] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -86,7 +85,7 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_bluetooth(
-        self, discovery_info: bluetooth.BluetoothServiceInfoBleak
+        self, discovery_info: BluetoothServiceInfoBleak
     ) -> dict[str, Any]:
         """Handle the bluetooth discovery step."""
         address = discovery_info.address
