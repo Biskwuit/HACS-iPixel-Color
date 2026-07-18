@@ -21,6 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get
 from .const import (
     DOMAIN,
     SERVICE_CLEAR,
+    SERVICE_SEND_IMAGE,
     SERVICE_SEND_TEXT,
     SERVICE_SET_CLOCK,
     SERVICE_SET_ORIENTATION,
@@ -29,7 +30,6 @@ from .const import (
 from .coordinator import IPixelCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -57,6 +57,18 @@ async def async_setup_entry(
             vol.Optional("font", default="CUSONG"): cv.string,
         },
         "async_send_text",
+    )
+
+    platform.async_register_entity_service(
+        SERVICE_SEND_IMAGE,
+        {
+            vol.Optional("path"): cv.string,
+            vol.Optional("hex_string"): cv.string,
+            vol.Optional("file_extension", default=".png"): cv.string,
+            vol.Optional("resize_method", default="crop"): vol.In(["crop", "fit"]),
+            vol.Optional("save_slot", default=0): vol.Coerce(int),
+        },
+        "async_send_image",
     )
 
     platform.async_register_entity_service(
@@ -90,7 +102,6 @@ async def async_setup_entry(
         {},
         "async_clear",
     )
-
 
 class IPixelColorLight(LightEntity):
     """Representation of an iPixel Color matrix as a light."""
@@ -161,6 +172,32 @@ class IPixelColorLight(LightEntity):
             speed=speed,
             font=font,
         )
+        self.async_write_ha_state()
+
+    async def async_send_image(
+        self,
+        path: str | None = None,
+        hex_string: str | None = None,
+        file_extension: str = ".png",
+        resize_method: str = "crop",
+        save_slot: int = 0,
+    ) -> None:
+        """Send image service."""
+        if path is not None:
+            await self.coordinator.async_send_image(
+                path,
+                resize_method=resize_method,
+                save_slot=save_slot,
+            )
+        elif hex_string is not None:
+            await self.coordinator.async_send_image_hex(
+                hex_string,
+                file_extension=file_extension,
+                resize_method=resize_method,
+                save_slot=save_slot,
+            )
+        else:
+            raise ValueError("Either path or hex_string must be provided")
         self.async_write_ha_state()
 
     async def async_set_clock(

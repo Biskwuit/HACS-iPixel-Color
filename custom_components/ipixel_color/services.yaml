@@ -130,3 +130,59 @@ clear:
     entity:
       integration: ipixel_color
       domain: light
+
+send_image:
+  name: Send image
+  description: Send an image to the iPixel Color LED Matrix from a file path or hex data.
+  target:
+    entity:
+      integration: ipixel_color
+      domain: light
+  fields:
+    path:
+      name: Image path
+      description: File path to the image (e.g. /config/www/myimage.png). Supports PNG, JPG, GIF, WebP, BMP, TIFF, HEIC, HEIF.
+      required: false
+      example: "/config/www/logo.png"
+      selector:
+        text:
+    hex_string:
+      name: Hex data
+      description: Hexadecimal string of the image data (alternative to path).
+      required: false
+      selector:
+        text:
+    file_extension:
+      name: File extension
+      description: File extension for hex data decoding.
+      default: ".png"
+      selector:
+        select:
+          options:
+            - ".png"
+            - ".jpg"
+            - ".jpeg"
+            - ".gif"
+            - ".webp"
+            - ".bmp"
+            - ".tiff"
+            - ".heic"
+            - ".heif"
+    resize_method:
+      name: Resize method
+      description: How to resize the image to fit the matrix.
+      default: "crop"
+      selector:
+        select:
+          options:
+            - "crop"
+            - "fit"
+    save_slot:
+      name: Save slot
+      description: If 1-10, saves the image to that slot for later recall.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 10
+          mode: box

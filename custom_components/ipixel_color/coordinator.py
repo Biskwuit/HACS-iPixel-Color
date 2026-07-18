@@ -23,10 +23,8 @@ _LOGGER = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
-
 class IPixelConnectionError(HomeAssistantError):
     """Raised when the iPixel device cannot be reached."""
-
 
 class IPixelCoordinator:
     """Connection manager for an iPixel Color matrix.
@@ -202,6 +200,42 @@ class IPixelCoordinator:
                 color=color,
                 bg_color=bg_color,
                 font=font,
+            )
+        )
+        self.is_on = True
+
+    async def async_send_image(
+        self,
+        path: str,
+        *,
+        resize_method: str = "crop",
+        save_slot: int = 0,
+    ) -> None:
+        """Send an image from a file path to the matrix."""
+        await self.async_call(
+            lambda client: client.send_image(
+                path=path,
+                resize_method=resize_method,
+                save_slot=save_slot,
+            )
+        )
+        self.is_on = True
+
+    async def async_send_image_hex(
+        self,
+        hex_string: str | bytes,
+        file_extension: str,
+        *,
+        resize_method: str = "crop",
+        save_slot: int = 0,
+    ) -> None:
+        """Send an image from hex data to the matrix."""
+        await self.async_call(
+            lambda client: client.send_image_hex(
+                hex_string=hex_string,
+                file_extension=file_extension,
+                resize_method=resize_method,
+                save_slot=save_slot,
             )
         )
         self.is_on = True
