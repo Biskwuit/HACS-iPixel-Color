@@ -1,42 +1,19 @@
-"""Home Assistant integration for iPixel Color LED Matrix."""
-
-from __future__ import annotations
-
-import logging
+"""iPixel Color LED Matrix custom integration for Home Assistant."""
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, PLATFORMS
-from .coordinator import IPixelCoordinator
+from .const import DOMAIN
 
-_LOGGER = logging.getLogger(__name__)
+__version__ = "0.2.0"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up iPixel Color from a config entry."""
-    coordinator = IPixelCoordinator(hass, entry)
-
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = coordinator
-
-    await coordinator.async_connect()
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
+    await hass.config_entries.async_forward_entry_setups(entry, ["light"])
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    coordinator: IPixelCoordinator | None = hass.data[DOMAIN].pop(entry.entry_id, None)
-
-    if coordinator is not None:
-        await coordinator.async_disconnect()
-
-    if not hass.data[DOMAIN]:
-        hass.data.pop(DOMAIN)
-
-    return unload_ok
+    """Unload iPixel Color config entry."""
+    return await hass.config_entries.async_unload_platforms(entry, ["light"])
