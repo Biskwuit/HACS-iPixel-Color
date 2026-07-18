@@ -1,187 +1,248 @@
-"""Data coordinator for iPixel Color LED Matrix."""
+"""Coordinator/client wrapper for iPixel Color."""
+
+from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
-from typing import Optional
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+
+from pypixelcolor.client import AsyncClient
 
 from .const import (
     CONF_ADDRESS,
-    DOMAIN,
+    MAX_RECONNECT_ATTEMPTS,
     RECONNECT_DELAY,
-    RECONNECT_MAX_DELAY,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
+_T = TypeVar("_T")
 
-class IPixelColorCoordinator(DataUpdateCoordinator):
-    """Manages the connection to an iPixel Color LED Matrix device."""
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        address: str,
-    ) -> None:
-        """Initialize the coordinator."""
-        self._address = address
-        self._client: Optional["pypixelcolor.AsyncClient"] = None
-        self._reconnect_task: Optional[asyncio.Task] = None
-        self._should_reconnect = False
-        self._reconnect_delay = RECONNECT_DELAY
+class IPixelConnectionError(HomeAssistantError):
+    """Raised when the iPixel device cannot be reached."""
 
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=DOMAIN,
-            update_interval=timedelta(seconds=30),
-            always_update=False,
-        )
 
-    @property
-    def device_info(self) -> Optional["DeviceInfo"]:
-        """Return cached device info."""
-        if self._client is not None:
-            try:
-                return self._client.get_device_info()
-            except RuntimeError:
-                return None
-        return None
+class IPixelCoordinator:
+    """Connection manager for an iPixel Color matrix.
+
+    Handles:
+    - Initial BLE connect
+    - Automatic reconnect on command failure
+    - Serialized command execution
+    - Basic cached state
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize coordinator."""
+        self.hass = hass
+        self.entry = entry
+        self.address: str = entry.data[CONF_ADDRESS]
+
+        self.client = AsyncClient(self.address)
+
+        self._lock = asyncio.Lock()
+        self._connected = False
+
+        self.is_on = False
+        self.brightness = 255
 
     @property
-    def available(self) -> bool:
-        """Return True if connected."""
-        return self._client is not None and self._client._connected  # noqa: SLF001
+    def connected(self) -> bool:
+        """Return current connection state."""
+        return self._connected
 
-    async def _async_update_data(self):
-        """Update data. Called by the coordinator."""
-        # The device info is cached; we just need to maintain connection.
-        if not self.available:
-            _LOGGER.debug("Client not available, will reconnect")
-        return {"available": self.available}
+    async def async_connect(self) -> None:
+        """Connect to the matrix."""
+        async with self._lock:
+            await self._async_connect_locked()
 
-    async def async_connect(self) -> bool:
-        """Connect to the device."""
+    async def _async_connect_locked(self) -> None:
+        """Connect while lock is already held."""
+        if self._connected:
+            return
+
+        _LOGGER.debug("Connecting to iPixel Color device %s", self.address)
+
         try:
-            import pypixelcolor
+            await self.client.connect()
+        except Exception as err:  # noqa: BLE library can raise several types
+            self._connected = False
+            _LOGGER.warning("Failed to connect to iPixel Color %s: %s", self.address, err)
+            raise IPixelConnectionError(f"Could not connect to iPixel Color {self.address}") from err
 
-            _LOGGER.info("Connecting to iPixel Color device at %s", self._address)
-            self._client = pypixelcolor.AsyncClient(self._address)
-            await self._client.connect()
-            _LOGGER.info("Successfully connected to iPixel Color device at %s", self._address)
-            self._should_reconnect = True
-            self._reconnect_delay = RECONNECT_DELAY
-            self.async_set_updated_data({"available": True})
-            return True
-        except Exception as err:
-            _LOGGER.warning("Failed to connect to iPixel Color device: %s", err)
-            self._client = None
-            return False
+        self._connected = True
+        _LOGGER.info("Connected to iPixel Color device %s", self.address)
 
     async def async_disconnect(self) -> None:
-        """Disconnect from the device."""
-        self._should_reconnect = False
-        if self._reconnect_task:
-            self._reconnect_task.cancel()
-            self._reconnect_task = None
+        """Disconnect from the matrix."""
+        async with self._lock:
+            if not self._connected:
+                return
 
-        if self._client is not None:
             try:
-                await self._client.disconnect()
-            except Exception as err:
-                _LOGGER.debug("Error disconnecting: %s", err)
-            self._client = None
-            self.async_set_updated_data({"available": False})
+                await self.client.disconnect()
+            except Exception as err:  # noqa
+                _LOGGER.debug("Error while disconnecting iPixel Color: %s", err)
+            finally:
+                self._connected = False
 
-    async def _async_reconnect_loop(self) -> None:
-        """Background reconnect loop."""
-        _LOGGER.debug("Starting reconnect loop for %s", self._address)
-        while self._should_reconnect:
-            if not self.available:
-                _LOGGER.info("Attempting to reconnect to %s in %ds", self._address, self._reconnect_delay)
-                connected = await self.async_connect()
-                if not connected:
-                    # Exponential backoff
-                    self._reconnect_delay = min(self._reconnect_delay * 2, RECONNECT_MAX_DELAY)
-                else:
-                    self._reconnect_delay = RECONNECT_DELAY
-            await asyncio.sleep(self._reconnect_delay)
+    async def _async_reconnect_locked(self) -> None:
+        """Reconnect while lock is already held."""
+        self._connected = False
 
-    def start_reconnect_loop(self) -> None:
-        """Start the automatic reconnect background task."""
-        if self._reconnect_task is None or self._reconnect_task.done():
-            self._should_reconnect = True
-            self._reconnect_task = asyncio.create_task(self._async_reconnect_loop())
-            _LOGGER.debug("Reconnect loop started for %s", self._address)
+        try:
+            await self.client.disconnect()
+        except Exception:
+            pass
 
-    async def send_text(
+        self.client = AsyncClient(self.address)
+
+        last_error: Exception | None = None
+
+        for attempt in range(1, MAX_RECONNECT_ATTEMPTS + 1):
+            try:
+                _LOGGER.debug(
+                    "Reconnect attempt %s/%s for iPixel Color %s",
+                    attempt,
+                    MAX_RECONNECT_ATTEMPTS,
+                    self.address,
+                )
+                await self.client.connect()
+            except Exception as err:  # noqa
+                last_error = err
+                await asyncio.sleep(RECONNECT_DELAY)
+            else:
+                self._connected = True
+                _LOGGER.info("Reconnected to iPixel Color %s", self.address)
+                return
+
+        raise IPixelConnectionError(
+            f"Could not reconnect to iPixel Color {self.address}"
+        ) from last_error
+
+    async def async_call(
+        self,
+        func: Callable[[AsyncClient], Awaitable[_T]],
+        *,
+        reconnect: bool = True,
+    ) -> _T:
+        """Call a pypixelcolor command with reconnect handling."""
+        async with self._lock:
+            if not self._connected:
+                await self._async_connect_locked()
+
+            try:
+                return await func(self.client)
+            except Exception as first_err:  # noqa
+                _LOGGER.warning(
+                    "iPixel Color command failed, reconnect=%s: %s",
+                    reconnect,
+                    first_err,
+                )
+
+                self._connected = False
+
+                if not reconnect:
+                    raise IPixelConnectionError("iPixel Color command failed") from first_err
+
+                await self._async_reconnect_locked()
+
+                try:
+                    return await func(self.client)
+                except Exception as second_err:  # noqa
+                    self._connected = False
+                    raise IPixelConnectionError(
+                        "iPixel Color command failed after reconnect"
+                    ) from second_err
+
+    async def async_set_power(self, on: bool) -> None:
+        """Set display power."""
+        await self.async_call(lambda client: client.set_power(on))
+        self.is_on = on
+
+    async def async_set_brightness(self, brightness: int) -> None:
+        """Set brightness, Home Assistant scale 0-255."""
+        brightness = max(0, min(255, brightness))
+
+        # pypixelcolor expects a level; most devices use 0-100.
+        level = round((brightness / 255) * 100)
+
+        await self.async_call(lambda client: client.set_brightness(level))
+
+        self.brightness = brightness
+        if brightness > 0:
+            self.is_on = True
+
+    async def async_send_text(
         self,
         text: str,
-        animation: int = 0,
-        speed: int = 80,
+        *,
         color: str = "ffffff",
+        bg_color: str | None = None,
+        rainbow_mode: int = 0,
+        animation: int = 0,
+        save_slot: int = 0,
+        speed: int = 80,
         font: str = "CUSONG",
-    ) -> bool:
-        """Send text to the device."""
-        if not self.available:
-            _LOGGER.warning("Cannot send text: not connected")
-            return False
-
-        try:
-            await self._client.send_text(
+    ) -> None:
+        """Send text to the matrix."""
+        await self.async_call(
+            lambda client: client.send_text(
                 text=text,
+                rainbow_mode=rainbow_mode,
                 animation=animation,
+                save_slot=save_slot,
                 speed=speed,
                 color=color,
+                bg_color=bg_color,
                 font=font,
             )
-            return True
-        except Exception as err:
-            _LOGGER.warning("Failed to send text: %s", err)
-            # Connection might be broken; trigger reconnect
-            if self._should_reconnect and not self._reconnect_task.done():
-                # The reconnect loop will handle it
-                pass
-            return False
+        )
+        self.is_on = True
 
-    async def set_power(self, on: bool) -> bool:
-        """Set the power state of the device."""
-        if not self.available:
-            _LOGGER.warning("Cannot set power: not connected")
-            return False
+    async def async_set_clock(
+        self,
+        *,
+        style: int = 1,
+        show_date: bool = True,
+        format_24: bool = True,
+    ) -> None:
+        """Show clock mode."""
+        await self.async_call(
+            lambda client: client.set_clock_mode(
+                style=style,
+                show_date=show_date,
+                format_24=format_24,
+            )
+        )
+        self.is_on = True
 
-        try:
-            await self._client.set_power(on=on)
-            return True
-        except Exception as err:
-            _LOGGER.warning("Failed to set power: %s", err)
-            return False
+    async def async_show_slot(self, number: int) -> None:
+        """Show saved slot."""
+        await self.async_call(lambda client: client.show_slot(number))
+        self.is_on = True
 
-    async def set_brightness(self, level: int) -> bool:
-        """Set the brightness of the device (0-100)."""
-        if not self.available:
-            _LOGGER.warning("Cannot set brightness: not connected")
-            return False
+    async def async_set_orientation(self, orientation: int) -> None:
+        """Set orientation."""
+        await self.async_call(lambda client: client.set_orientation(orientation))
 
-        try:
-            await self._client.set_brightness(level=level)
-            return True
-        except Exception as err:
-            _LOGGER.warning("Failed to set brightness: %s", err)
-            return False
+    async def async_clear(self) -> None:
+        """Clear EEPROM/screens."""
+        await self.async_call(lambda client: client.clear())
 
-    async def clear(self) -> bool:
-        """Clear the device display."""
-        if not self.available:
-            return False
-
-        try:
-            await self._client.clear()
-            return True
-        except Exception as err:
-            _LOGGER.warning("Failed to clear display: %s", err)
-            return False
+    @callback
+    def async_device_info(self) -> dict[str, Any]:
+        """Return HA device info."""
+        return {
+            "identifiers": {("ipixel_color", self.address)},
+            "name": self.entry.title,
+            "manufacturer": "iPixel Color",
+            "model": "LED Matrix",
+            "connections": {("bluetooth", self.address)},
+        }

@@ -1,105 +1,193 @@
-"""Light entity for iPixel Color LED Matrix."""
+"""Light platform for iPixel Color."""
+
+from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from homeassistant.components.bluetooth import CONNECTIONS_DOMAIN
-from homeassistant.components.light import ColorMode, LightEntity
+import voluptuous as vol
+
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ColorMode,
+    LightEntity,
+    LightEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get_current_platform
 
-from .const import CONF_ADDRESS, DOMAIN
-from .coordinator import IPixelColorCoordinator
+from .const import (
+    DOMAIN,
+    SERVICE_CLEAR,
+    SERVICE_SEND_TEXT,
+    SERVICE_SET_CLOCK,
+    SERVICE_SET_ORIENTATION,
+    SERVICE_SHOW_SLOT,
+)
+from .coordinator import IPixelCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up light entity."""
+    coordinator: IPixelCoordinator = hass.data[DOMAIN][entry.entry_id]
+
+    entity = IPixelColorLight(coordinator)
+    async_add_entities([entity])
+
+    platform = async_get_current_platform()
+
+    platform.async_register_entity_service(
+        SERVICE_SEND_TEXT,
+        {
+            vol.Required("text"): cv.string,
+            vol.Optional("color", default="ffffff"): cv.string,
+            vol.Optional("bg_color"): cv.string,
+            vol.Optional("rainbow_mode", default=0): vol.Coerce(int),
+            vol.Optional("animation", default=0): vol.Coerce(int),
+            vol.Optional("save_slot", default=0): vol.Coerce(int),
+            vol.Optional("speed", default=80): vol.Coerce(int),
+            vol.Optional("font", default="CUSONG"): cv.string,
+        },
+        "async_send_text",
+    )
+
+    platform.async_register_entity_service(
+        SERVICE_SET_CLOCK,
+        {
+            vol.Optional("style", default=1): vol.Coerce(int),
+            vol.Optional("show_date", default=True): cv.boolean,
+            vol.Optional("format_24", default=True): cv.boolean,
+        },
+        "async_set_clock",
+    )
+
+    platform.async_register_entity_service(
+        SERVICE_SHOW_SLOT,
+        {
+            vol.Required("number"): vol.Coerce(int),
+        },
+        "async_show_slot",
+    )
+
+    platform.async_register_entity_service(
+        SERVICE_SET_ORIENTATION,
+        {
+            vol.Required("orientation"): vol.Coerce(int),
+        },
+        "async_set_orientation",
+    )
+
+    platform.async_register_entity_service(
+        SERVICE_CLEAR,
+        {},
+        "async_clear",
+    )
+
+
 class IPixelColorLight(LightEntity):
-    """Light entity for controlling power and brightness."""
+    """Representation of an iPixel Color matrix as a light."""
 
-    _attr_color_mode = ColorMode.BRIGHTNESS
-    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
     _attr_has_entity_name = True
-    _attr_translation_key = "light"
+    _attr_name = None
+    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+    _attr_color_mode = ColorMode.BRIGHTNESS
+    _attr_supported_features = LightEntityFeature.EFFECT
 
-    def __init__(
-        self,
-        coordinator: IPixelColorCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize the light entity."""
-        super().__init__(coordinator)
-        self._entry = entry
-        self._address = entry.data[CONF_ADDRESS]
-        self._attr_unique_id = f"{self._address}_light"
-        self._attr_device_info = self._get_device_info()
-
-        self._cached_brightness: Optional[int] = None
-
-    def _get_device_info(self) -> dict[str, Any]:
-        """Build device info."""
-        device_info = self.coordinator.device_info
-        connections = {(CONNECTIONS_DOMAIN, self._address)}
-
-        name = "iPixel Color LED Matrix"
-        if device_info:
-            model = getattr(device_info, "model", None) or "iPixel Color"
-            firmware = getattr(device_info, "firmware", None) or "Unknown"
-            name = f"iPixel Color {model}"
-
-            identifiers: set[tuple[str, str]] = set()
-            for conn in connections:
-                identifiers.add(conn)
-
-            return {
-                "identifiers": identifiers,
-                "name": name,
-                "manufacturer": "iPixel",
-                "model": model,
-                "sw_version": firmware,
-            }
-
-        return {
-            "identifiers": connections,
-            "name": name,
-            "manufacturer": "iPixel",
-            "model": "iPixel Color LED Matrix",
-        }
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on the light."""
-        await self.coordinator.set_power(True)
-        if (brightness := kwargs.get("brightness")) is not None:
-            level = int(brightness / 2.55)  # HA uses 0-255, device uses 0-100
-            await self.coordinator.set_brightness(level)
-            self._cached_brightness = level
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off the light."""
-        await self.coordinator.set_power(False)
-        self.async_write_ha_state()
-
-    async def async_update_brightness(self, brightness: int) -> None:
-        """Update brightness."""
-        if self._attr_is_on:
-            level = int(brightness / 2.55)
-            await self.coordinator.set_brightness(level)
-            self._cached_brightness = level
-            self.async_write_ha_state()
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if the device is on."""
-        return self.coordinator.available
-
-    @property
-    def brightness(self) -> Optional[int]:
-        """Return the brightness (0-255 scale)."""
-        return self._cached_brightness * 2.55 if self._cached_brightness else 255
+    def __init__(self, coordinator: IPixelCoordinator) -> None:
+        """Initialize entity."""
+        self.coordinator = coordinator
+        self._attr_unique_id = coordinator.address
+        self._attr_device_info = coordinator.async_device_info()
 
     @property
     def available(self) -> bool:
-        """Return True if the device is available."""
-        return self.coordinator.available
+        """Return if entity is available."""
+        # We keep it available so service calls can trigger reconnect.
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        """Return if display is on."""
+        return self.coordinator.is_on
+
+    @property
+    def brightness(self) -> int:
+        """Return brightness."""
+        return self.coordinator.brightness
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on display."""
+        brightness = kwargs.get(ATTR_BRIGHTNESS)
+
+        if brightness is not None:
+            await self.coordinator.async_set_brightness(brightness)
+        else:
+            await self.coordinator.async_set_power(True)
+
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off display."""
+        await self.coordinator.async_set_power(False)
+        self.async_write_ha_state()
+
+    async def async_send_text(
+        self,
+        text: str,
+        color: str = "ffffff",
+        bg_color: str | None = None,
+        rainbow_mode: int = 0,
+        animation: int = 0,
+        save_slot: int = 0,
+        speed: int = 80,
+        font: str = "CUSONG",
+    ) -> None:
+        """Send text service."""
+        await self.coordinator.async_send_text(
+            text,
+            color=color,
+            bg_color=bg_color,
+            rainbow_mode=rainbow_mode,
+            animation=animation,
+            save_slot=save_slot,
+            speed=speed,
+            font=font,
+        )
+        self.async_write_ha_state()
+
+    async def async_set_clock(
+        self,
+        style: int = 1,
+        show_date: bool = True,
+        format_24: bool = True,
+    ) -> None:
+        """Set clock mode service."""
+        await self.coordinator.async_set_clock(
+            style=style,
+            show_date=show_date,
+            format_24=format_24,
+        )
+        self.async_write_ha_state()
+
+    async def async_show_slot(self, number: int) -> None:
+        """Show saved slot service."""
+        await self.coordinator.async_show_slot(number)
+        self.async_write_ha_state()
+
+    async def async_set_orientation(self, orientation: int) -> None:
+        """Set orientation service."""
+        await self.coordinator.async_set_orientation(orientation)
+        self.async_write_ha_state()
+
+    async def async_clear(self) -> None:
+        """Clear device service."""
+        await self.coordinator.async_clear()
+        self.async_write_ha_state()

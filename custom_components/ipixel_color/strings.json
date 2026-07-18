@@ -1,39 +1,28 @@
 {
-  "title": "iPixel Color LED Matrix",
   "config": {
     "step": {
       "user": {
-        "title": "Select iPixel Color Device",
-        "description": "Choose an iPixel Color LED Matrix device to configure.",
+        "title": "Set up iPixel Color",
+        "description": "{hint}",
         "data": {
-          "address": "Device Address"
-        },
-        "data_description": {
-          "address": "The Bluetooth address of your iPixel Color device (e.g., AA:BB:CC:DD:EE:FF)"
+          "address": "Bluetooth address",
+          "name": "Name"
+        }
+      },
+      "pick_device": {
+        "title": "Select iPixel Color device",
+        "description": "Choose the discovered iPixel Color LED Matrix.",
+        "data": {
+          "address": "Device"
         }
       },
       "bluetooth_confirm": {
-        "title": "iPixel Color LED Matrix",
-        "description": "Set up iPixel Color LED Matrix at {address}?"
+        "title": "Add iPixel Color",
+        "description": "Do you want to add {name}?"
       }
-    },
-    "error": {
-      "cannot_connect": "Unable to connect to the device. Please try again.",
-      "already_configured": "This device is already configured."
     },
     "abort": {
-      "already_configured": "This device is already configured.",
-      "cannot_connect": "Could not connect to the device."
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "iPixel Color Settings",
-        "data": {
-          "scan_interval": "Scan Interval (seconds)"
-        }
-      }
+      "already_configured": "This iPixel Color device is already configured."
     }
   }
 }

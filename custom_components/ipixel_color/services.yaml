@@ -1,0 +1,132 @@
+send_text:
+  name: Send text
+  description: Send text to the iPixel Color LED Matrix.
+  target:
+    entity:
+      integration: ipixel_color
+      domain: light
+  fields:
+    text:
+      name: Text
+      description: Text to display.
+      required: true
+      example: "Hello Home Assistant!"
+      selector:
+        text:
+    color:
+      name: Text color
+      description: Hex RGB text color without #.
+      default: "ffffff"
+      selector:
+        text:
+    bg_color:
+      name: Background color
+      description: Optional hex RGB background color without #.
+      selector:
+        text:
+    rainbow_mode:
+      name: Rainbow mode
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 10
+          mode: box
+    animation:
+      name: Animation
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 50
+          mode: box
+    save_slot:
+      name: Save slot
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    speed:
+      name: Speed
+      default: 80
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: slider
+    font:
+      name: Font
+      default: "CUSONG"
+      selector:
+        text:
+
+set_clock:
+  name: Set clock mode
+  description: Show clock mode on the iPixel Color LED Matrix.
+  target:
+    entity:
+      integration: ipixel_color
+      domain: light
+  fields:
+    style:
+      name: Clock style
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 20
+          mode: box
+    show_date:
+      name: Show date
+      default: true
+      selector:
+        boolean:
+    format_24:
+      name: 24-hour format
+      default: true
+      selector:
+        boolean:
+
+show_slot:
+  name: Show slot
+  description: Show a saved display slot.
+  target:
+    entity:
+      integration: ipixel_color
+      domain: light
+  fields:
+    number:
+      name: Slot number
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+
+set_orientation:
+  name: Set orientation
+  description: Set display orientation.
+  target:
+    entity:
+      integration: ipixel_color
+      domain: light
+  fields:
+    orientation:
+      name: Orientation
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: box
+
+clear:
+  name: Clear
+  description: Clear stored display data/screens.
+  target:
+    entity:
+      integration: ipixel_color
+      domain: light

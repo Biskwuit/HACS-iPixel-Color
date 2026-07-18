@@ -1,7 +1,7 @@
 {
   "name": "iPixel Color LED Matrix",
-  "url": "https://github.com/your-username/ipixel_color",
-  "content_in_root": false,
   "render_readme": true,
-  "domains": ["light", "text"]
+  "domains": ["light"],
+  "homeassistant": "2024.6.0",
+  "iot_class": "local_push"
 }
