@@ -1,0 +1,23 @@
+{
+  "domain": "ipixel_color",
+  "name": "iPixel Color LED Matrix",
+  "codeowners": ["@your-github-username"],
+  "config_flow": true,
+  "documentation": "https://github.com/your-github-username/hacs-ipixel-color",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/your-github-username/hacs-ipixel-color/issues",
+  "requirements": ["pypixelcolor>=0.4.0", "bleak>=0.22.0"],
+  "version": "0.1.0",
+  "bluetooth": [
+    {
+      "local_name": "iPixel*"
+    },
+    {
+      "local_name": "IPixel*"
+    },
+    {
+      "local_name": "iPixel Color*"
+    }
+  ]
+}
