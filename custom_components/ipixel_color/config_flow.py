@@ -3,11 +3,18 @@
 import logging
 from typing import Any
 
+import voluptuous as vol
+
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.core import callback
-from homeassistant.helpers.selector import selector
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectOptionDict,
+    SelectSelectorMode,
+)
 
 from .const import CONF_ADDRESS, DOMAIN
 
@@ -20,14 +27,12 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        """Initialize the config flow."""
         self._address: str | None = None
         self._devices: dict[str, Any] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Handle the user step."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -35,7 +40,6 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
 
-            # Validate connection
             try:
                 import pypixelcolor
                 client = pypixelcolor.AsyncClient(address)
@@ -53,41 +57,46 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Discover devices
         discovered = bluetooth.async_discovered_service_info(self.hass)
-        self._devices = {}
-        devices_dict = {}
+        devices_dict: dict[str, str] = {}
 
         for discovery in discovered:
             if discovery.name and "iPixel" in discovery.name:
-                address = discovery.address
-                self._devices[address] = discovery
-                devices_dict[address] = f"{discovery.name} ({address})"
+                devices_dict[discovery.address] = f"{discovery.name} ({discovery.address})"
 
         if not devices_dict:
-            # If no auto-discovered, show any discovered BLE devices as fallback
             for discovery in discovered:
-                address = discovery.address
-                self._devices[address] = discovery
-                devices_dict[address] = f"{discovery.name or 'Unknown'} ({address})"
+                devices_dict[discovery.address] = (
+                    f"{discovery.name or 'Unknown'} ({discovery.address})"
+                )
+
+        # No devices found at all -> let the user type a MAC manually
+        if not devices_dict:
+            schema = vol.Schema({vol.Required(CONF_ADDRESS): str})
+        else:
+            schema = vol.Schema(
+                {
+                    vol.Required(CONF_ADDRESS): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[
+                                SelectOptionDict(value=addr, label=name)
+                                for addr, name in devices_dict.items()
+                            ],
+                            mode=SelectSelectorMode.DROPDOWN,
+                            custom_value=True,
+                        )
+                    )
+                }
+            )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=selector({
-                CONF_ADDRESS: selector({
-                    "select": {
-                        "options": [
-                            {"label": name, "value": addr}
-                            for addr, name in devices_dict.items()
-                        ]
-                    }
-                })
-            }),
+            data_schema=schema,
             errors=errors,
         )
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> dict[str, Any]:
-        """Handle the bluetooth discovery step."""
         address = discovery_info.address
         await self.async_set_unique_id(address)
         self._abort_if_unique_id_configured()
@@ -95,28 +104,25 @@ class IPixelColorConfigFlow(ConfigFlow, domain=DOMAIN):
         self._address = address
         self.context["title_placeholders"] = {"address": address}
 
-        return self.async_show_form(
-            step_id="bluetooth_confirm",
-            description_placeholders={CONF_ADDRESS: address},
-        )
+        return await self.async_step_bluetooth_confirm()
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Confirm the bluetooth discovery."""
         if user_input is None:
-            return self.async_show_form(step_id="bluetooth_confirm")
+            return self.async_show_form(
+                step_id="bluetooth_confirm",
+                description_placeholders={CONF_ADDRESS: self._address},
+            )
 
-        address = self._address or self.context.get("title_placeholders", {}).get("address")
         return self.async_create_entry(
-            title=f"iPixel Color LED Matrix ({address})",
-            data={CONF_ADDRESS: address},
+            title=f"iPixel Color LED Matrix ({self._address})",
+            data={CONF_ADDRESS: self._address},
         )
 
     @staticmethod
     @callback
     def async_get_options_flow(entry: ConfigEntry) -> OptionsFlow:
-        """Get the options flow."""
         return IPixelColorOptionsFlow(entry)
 
 
@@ -124,11 +130,11 @@ class IPixelColorOptionsFlow(OptionsFlow):
     """Handle options for iPixel Color."""
 
     def __init__(self, entry: ConfigEntry) -> None:
-        """Initialize options flow."""
         self._entry = entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Manage options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
         return self.async_show_form(step_id="init")
